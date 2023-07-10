@@ -38,16 +38,19 @@ import json
 import re
 import os
 import fileinput
-
+import string
 
 COMMIT_MESSAGE="Update docker compose to use new LZ registry"
 PR_TITLE="Update docker compose to use new LZ registry"
 BRANCH_NAME="CCOE-LZ-MIGRATION"
 PR_BODY='''
-    As per artifactory migration, updating docker compose to point to new LZ registry.    
+    As per artifactory migration, updating docker compose to point to new LZ registry.
+
+    Please check the changed files carefully as this was an automated replace of ccoe-docker-rel-local for lz-docker-rel-local.
+
     Please confirm branch build succeeds and containers are pulled from lz-docker-rel-local before approving.
 
-    If there are authentication issue present, please ensure buidkite authentication is enabled for the queue, as per:
+    If there are authentication issues present, please ensure buidkite authentication is enabled for the queue, as per:
 
     https://nbs-enterprise.atlassian.net/wiki/spaces/ACPCM/pages/851812835/Buildkite+Artifactory+Authentication+-+Implementation+Usage+Enablement
 
@@ -260,8 +263,8 @@ class RepoSearch:
         'terraform-aws-elasticsearch'],
     ['terraform-compliance', 'nbs-buildkite-terraform-provider']]
 
-        return ['nbs-example-terraform']
-        # return ['nbs-lz']
+        #return lz[0]
+        return ['nbs-lz-tagging-non-compliance-reporter']
   
     def replace_in_files(self, directory):
         '''
@@ -271,13 +274,39 @@ class RepoSearch:
         
         for root, _, files in os.walk(directory):
             for file_name in files:
-                if file_name.startswith('docker-compose') and file_name.endswith('.yml'):
-                    file_path = os.path.join(root, file_name)
-                    for line in fileinput.input(file_path, inplace=True):
-                        # Replace 'ccoe-docker-rel-local' with 'lz-docker-rel-local' in each line
-                        modified_line = line.replace('ccoe-docker-rel-local', 'lz-docker-rel-local')
-                        print(modified_line, end='')
+                #if file_name.startswith('docker-compose') and file_name.endswith('.yml'):
+                file_path = os.path.join(root, file_name)
+                for line in fileinput.input(file_path, inplace=True):
+                    # Replace 'ccoe-docker-rel-local' with 'lz-docker-rel-local' in each line
+                    modified_line = line.replace('ccoe-docker-rel-local', 'lz-docker-rel-local')
+                    print(modified_line, end='')
                     fileinput.close()
+    def is_binary(self, filename):
+        with open(filename, 'rb') as file:
+            try:
+                file_contents = file.read()
+                if b'\0' in file_contents:
+                    return True
+                else:
+                    # Check for non-printable characters
+                    is_printable = all(char in string.printable for char in file_contents.decode())
+                    return not is_printable
+            except UnicodeDecodeError:
+                return True
+            
+    def replace_string_in_files(self, directory, old_string, new_string):
+        for dirpath, dirnames, filenames in os.walk(directory):
+            if ".git" in dirpath:
+                 continue
+            for filename in filenames:
+                filepath = os.path.join(dirpath, filename)
+                if self.is_binary(filepath):
+                    logging.info(f'BINARY FOUND FILE, SKIPPING: {filepath}')
+                    continue            
+                with fileinput.FileInput(filepath, inplace=True) as file:
+                    for line in file:
+                        line = line.replace(old_string, new_string)
+                        print(line, end='')    
 
     def clone_repos(self, repos_name):
         """
@@ -294,19 +323,23 @@ class RepoSearch:
             if not CHECK_FOLDER:
                 os.makedirs(repo_path)
                 remote_url = f"{repo_base_path}/{repo}.git"
-                #print(remote_url)
+                logging.info(f"CLONING: {remote_url}")
                 git.Repo.clone_from(remote_url, repo_path)
                 
             else:
                 #print(repo)
                 os.chdir(repo_path)
+                logging.info(f"REPO ALREADY EXISTS, PULLING LATEST: {repo_path}")
                 git.Repo(repo_path).git.pull('origin', 'master')
                 os.chdir("../..")
+            
+            logging.info(f"CREATING BRANCH AND CHECKOUT: {BRANCH_NAME}")
             current = git.Repo(repo_path).create_head(BRANCH_NAME)
             current.checkout()
+            logging.info(f"UPDATING FILES IN PATH: {repo_path}")
 
-            self.replace_in_files(repo_path)
-
+            self.replace_string_in_files(repo_path, 'ccoe-docker-rel-local', 'lz-docker-rel-local')
+            logging.info("COMMITTING..")
             git.Repo(repo_path).git.add(update=True)
             git.Repo(repo_path).index.commit(COMMIT_MESSAGE)
             git.Repo(repo_path).git.push('origin', BRANCH_NAME)
@@ -314,14 +347,15 @@ class RepoSearch:
             gh = Github(auth=auth)
             body = PR_BODY
             ghurl= gh.get_repo(f"{self.organisation}/{repo}")
+            logging.info(f"CREATING PR: {PR_TITLE}")
             pr = ghurl.create_pull(title=PR_TITLE, body=body, head=BRANCH_NAME, base="master")
             print(f"https://{self.gitprovider}/{self.organisation}/{repo}/pull/{pr.number}")           
-                                 
+            logging.info(f"CREATED PR: https://{self.gitprovider}/{self.organisation}/{repo}/pull/{pr.number}")                     
 if __name__ == "__main__":
-    try:
-        report = RepoSearch()
-        report.run()
-    except Exception as e:
-        print("EXCEPTION ENCOUNTERED:")
-        print(e)
-        sys.exit(1)
+    #try:
+    report = RepoSearch()
+    report.run()
+    #except Exception as e:
+    #    print("EXCEPTION ENCOUNTERED:")
+    #    print(e)
+    #    sys.exit(1)
