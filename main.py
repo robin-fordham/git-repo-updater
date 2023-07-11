@@ -246,7 +246,7 @@ class RepoSearch:
     ['terraform-compliance', 'nbs-buildkite-terraform-provider']]
 
         #return lz[0]
-        return ['nbs-lz-tagging-non-compliance-reporter']
+        return ['nbs-lz']
   
 
     def is_binary(self, filename):
@@ -269,23 +269,31 @@ class RepoSearch:
         Replaces any instance of old_string with new_string
         Returns True if changes were made, False if there were no changes
         """
-
         updates = False
         for dirpath, dirnames, filenames in os.walk(directory):
+            # skip the git directory
             if ".git" in dirpath:
                  continue
             for filename in filenames:
                 filepath = os.path.join(dirpath, filename)
+                # check if file is binary and skip if so
                 if self.is_binary(filepath):
                     logging.info(f'BINARY FOUND FILE, SKIPPING: {filepath}')
-                    continue            
-                with fileinput.FileInput(filepath, inplace=True) as file:
-                    for line in file:
-                        newline = line.replace(old_string, new_string)
-                        if newline != line:
-                            updates = True
-                        print(newline, end='')   
-        return updates 
+                    continue
+                # inefficient, but first check if text is in file, before reading and replacing instead of rewriting all files
+                with open(filepath) as file:
+                    if old_string in file.read():
+                        # Read and re-write every line as there is a replacement required
+                        with fileinput.FileInput(filepath, inplace=True) as file:
+                            for line in file:
+                                newline = line.replace(old_string, new_string)
+                                if newline != line:
+                                    logging.info(f"FILE UPDATED: {filename}")
+                                    logging.info(f"OLD LINE: {line}")
+                                    logging.info(f"NEW LINE: {newline}")
+                                    updates = True
+                                print(newline, end='')   
+        return updates
 
     def clone_repos(self, repos_name):
         """
@@ -306,7 +314,6 @@ class RepoSearch:
                 git.Repo.clone_from(remote_url, repo_path)
                 
             else:
-                #print(repo)
                 os.chdir(repo_path)
                 logging.info(f"REPO ALREADY EXISTS, PULLING LATEST: {repo_path}")
                 git.Repo(repo_path).git.pull('origin', 'master')
@@ -318,6 +325,7 @@ class RepoSearch:
             logging.info(f"UPDATING FILES IN PATH: {repo_path}")
 
             changes = self.replace_string_in_files(repo_path, 'ccoe-docker-rel-local', 'lz-docker-rel-local')
+            #Only commit and raise a pr if there are changes.
             if changes:
                 logging.info("COMMITTING..")
                 git.Repo(repo_path).git.add(update=True)
