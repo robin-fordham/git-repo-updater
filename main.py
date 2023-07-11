@@ -43,19 +43,19 @@ import string
 COMMIT_MESSAGE="Update docker compose to use new LZ registry"
 PR_TITLE="Update docker compose to use new LZ registry"
 BRANCH_NAME="CCOE-LZ-MIGRATION"
-PR_BODY='''
-    As per artifactory migration, updating docker compose to point to new LZ registry.
+PR_BODY="""
+As per Artifactory migration, updating all docker image pulls to point to new LZ registry.
 
-    Please check the changed files carefully as this was an automated replace of ccoe-docker-rel-local for lz-docker-rel-local.
+Please check the changed files carefully as this was an automated replace of **ccoe-docker-rel-local** for **lz-docker-rel-local**.
 
-    Please confirm branch build succeeds and containers are pulled from lz-docker-rel-local before approving.
+Please confirm branch build succeeds to the extent as expected, and containers are pulled from lz-docker-rel-local before approving. If there are no changes this PR can be discarded.
 
-    If there are authentication issues present, please ensure buidkite authentication is enabled for the queue, as per:
+If there are authentication issues present, please ensure buildkite authentication is enabled for the queue, as per:
 
-    https://nbs-enterprise.atlassian.net/wiki/spaces/ACPCM/pages/851812835/Buildkite+Artifactory+Authentication+-+Implementation+Usage+Enablement
+https://nbs-enterprise.atlassian.net/wiki/spaces/ACPCM/pages/851812835/Buildkite+Artifactory+Authentication+-+Implementation+Usage+Enablement
 
-    Any isues or questions please reach out to Amigos team.
-'''
+Any issues or questions please reach out to the Amigos team.
+"""
 
 
 class RepoSearch:
@@ -248,21 +248,7 @@ class RepoSearch:
         #return lz[0]
         return ['nbs-lz-tagging-non-compliance-reporter']
   
-    def replace_in_files(self, directory):
-        '''
-        Recursively find files matching the pattern docker-compose*yml
-        Replaces ccoe-docker-rel-local with lz-docker-rel-local
-        '''
-        
-        for root, _, files in os.walk(directory):
-            for file_name in files:
-                #if file_name.startswith('docker-compose') and file_name.endswith('.yml'):
-                file_path = os.path.join(root, file_name)
-                for line in fileinput.input(file_path, inplace=True):
-                    # Replace 'ccoe-docker-rel-local' with 'lz-docker-rel-local' in each line
-                    modified_line = line.replace('ccoe-docker-rel-local', 'lz-docker-rel-local')
-                    print(modified_line, end='')
-                    fileinput.close()
+
     def is_binary(self, filename):
         with open(filename, 'rb') as file:
             try:
@@ -277,6 +263,14 @@ class RepoSearch:
                 return True
             
     def replace_string_in_files(self, directory, old_string, new_string):
+        """
+        Iterates through each file recursively in a directory, exlcuding the .git directory
+        First confirms the file is not a binary file.
+        Replaces any instance of old_string with new_string
+        Returns True if changes were made, False if there were no changes
+        """
+
+        updates = False
         for dirpath, dirnames, filenames in os.walk(directory):
             if ".git" in dirpath:
                  continue
@@ -287,8 +281,11 @@ class RepoSearch:
                     continue            
                 with fileinput.FileInput(filepath, inplace=True) as file:
                     for line in file:
-                        line = line.replace(old_string, new_string)
-                        print(line, end='')    
+                        newline = line.replace(old_string, new_string)
+                        if newline != line:
+                            updates = True
+                        print(newline, end='')   
+        return updates 
 
     def clone_repos(self, repos_name):
         """
@@ -320,19 +317,23 @@ class RepoSearch:
             current.checkout()
             logging.info(f"UPDATING FILES IN PATH: {repo_path}")
 
-            self.replace_string_in_files(repo_path, 'ccoe-docker-rel-local', 'lz-docker-rel-local')
-            logging.info("COMMITTING..")
-            git.Repo(repo_path).git.add(update=True)
-            git.Repo(repo_path).index.commit(COMMIT_MESSAGE)
-            git.Repo(repo_path).git.push('origin', BRANCH_NAME)
-            auth = Auth.Token(self.token)
-            gh = Github(auth=auth)
-            body = PR_BODY
-            ghurl= gh.get_repo(f"{self.organisation}/{repo}")
-            logging.info(f"CREATING PR: {PR_TITLE}")
-            pr = ghurl.create_pull(title=PR_TITLE, body=body, head=BRANCH_NAME, base="master")
-            print(f"https://{self.gitprovider}/{self.organisation}/{repo}/pull/{pr.number}")           
-            logging.info(f"CREATED PR: https://{self.gitprovider}/{self.organisation}/{repo}/pull/{pr.number}")                     
+            changes = self.replace_string_in_files(repo_path, 'ccoe-docker-rel-local', 'lz-docker-rel-local')
+            if changes:
+                logging.info("COMMITTING..")
+                git.Repo(repo_path).git.add(update=True)
+                git.Repo(repo_path).index.commit(COMMIT_MESSAGE)
+                git.Repo(repo_path).git.push('origin', BRANCH_NAME)
+                auth = Auth.Token(self.token)
+                gh = Github(auth=auth)
+                body = PR_BODY
+                ghurl= gh.get_repo(f"{self.organisation}/{repo}")
+                logging.info(f"CREATING PR: {PR_TITLE}")
+                pr = ghurl.create_pull(title=PR_TITLE, body=body, head=BRANCH_NAME, base="master")
+                print(f"https://{self.gitprovider}/{self.organisation}/{repo}/pull/{pr.number}")           
+                logging.info(f"CREATED PR: https://{self.gitprovider}/{self.organisation}/{repo}/pull/{pr.number}")
+            else:
+                logging.info(f"NO CHANGES MADE FOR REPO: {repo}")
+                print(f"NO CHANGES MADE FOR REPO: {repo}")
 if __name__ == "__main__":
     #try:
     report = RepoSearch()
