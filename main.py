@@ -224,14 +224,13 @@ class RepoSearch:
     [   'nbs-lz-rhel-upgrade',
         'nbs-lz-sandbox',
         'nbs-lz-sechub-extract',
-        'nbs-lz-sechub-workflow-lambda',
         'nbs-lz-secrets-report',
         'nbs-lz-service-policy-reporting',
         'nbs-lz-splunk-sorter',
         'nbs-lz-suppress-resource-sechub-findings',
         'nbs-lz-tag-verifier'],
     [   'nbs-lz-tagging-non-compliance-reporter',
-        'nbs-lz-test-repo'
+        'nbs-lz-test-repo',
         'nbs-lz-tooling-roles',
         'nbs-splunk-sechub-input',
         'terraform-aws-eks'],
@@ -244,7 +243,7 @@ class RepoSearch:
         'terraform-aws-elasticsearch'],
     ['terraform-compliance', 'nbs-buildkite-terraform-provider']]
 
-        return lz[1]
+        return rokku
         
   
 
@@ -298,7 +297,8 @@ class RepoSearch:
         checks avaiable heads, uses main if available, else master
         """
         names = list(map(lambda head: head.name, git.Repo(repo_path).heads))
-
+        if len(names) == 0 :
+            return ""
         if "main" in names:
             return "main"
         else:
@@ -329,7 +329,12 @@ class RepoSearch:
                 logging.info(f"REPO ALREADY EXISTS, PULLING LATEST: {repo_path}")
                 git.Repo(repo_path).git.pull('origin', primary_head)
                 os.chdir("../..")
-            
+            # no heads found means an empty repo
+            if primary_head == "":
+                logging.info(f"REPO HAS NO HEADS: {repo}")
+                print(f"REPO HAS NO HEADS: {repo}")
+                continue
+
             logging.info(f"CREATING BRANCH AND CHECKOUT: {BRANCH_NAME}")
             current = git.Repo(repo_path).create_head(BRANCH_NAME)
             current.checkout()
