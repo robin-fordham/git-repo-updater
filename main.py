@@ -191,7 +191,6 @@ class RepoSearch:
         'nbs-lz-account-vendor',
         'nbs-lz-ami-aws-inspector-report'],
     [   'nbs-lz-ami-bakery',
-        'nbs-lz-ami-bakery-aws-linux',
         'nbs-lz-ami-bakery-vtm',
         'nbs-lz-ami-bakery-windows',
         'nbs-lz-ami-cleanup',
@@ -245,8 +244,8 @@ class RepoSearch:
         'terraform-aws-elasticsearch'],
     ['terraform-compliance', 'nbs-buildkite-terraform-provider']]
 
-        #return lz[0]
-        return ['nbs-lz']
+        return lz[1]
+        
   
 
     def is_binary(self, filename):
@@ -294,6 +293,17 @@ class RepoSearch:
                                     updates = True
                                 print(newline, end='')   
         return updates
+    def set_primary_head(self, repo_path):
+        """
+        checks avaiable heads, uses main if available, else master
+        """
+        names = list(map(lambda head: head.name, git.Repo(repo_path).heads))
+
+        if "main" in names:
+            return "main"
+        else:
+            return "master"
+
 
     def clone_repos(self, repos_name):
         """
@@ -312,11 +322,12 @@ class RepoSearch:
                 remote_url = f"{repo_base_path}/{repo}.git"
                 logging.info(f"CLONING: {remote_url}")
                 git.Repo.clone_from(remote_url, repo_path)
-                
+                primary_head = self.set_primary_head(repo_path)         
             else:
                 os.chdir(repo_path)
+                primary_head = self.set_primary_head(repo_path)
                 logging.info(f"REPO ALREADY EXISTS, PULLING LATEST: {repo_path}")
-                git.Repo(repo_path).git.pull('origin', 'master')
+                git.Repo(repo_path).git.pull('origin', primary_head)
                 os.chdir("../..")
             
             logging.info(f"CREATING BRANCH AND CHECKOUT: {BRANCH_NAME}")
@@ -336,7 +347,7 @@ class RepoSearch:
                 body = PR_BODY
                 ghurl= gh.get_repo(f"{self.organisation}/{repo}")
                 logging.info(f"CREATING PR: {PR_TITLE}")
-                pr = ghurl.create_pull(title=PR_TITLE, body=body, head=BRANCH_NAME, base="master")
+                pr = ghurl.create_pull(title=PR_TITLE, body=body, head=BRANCH_NAME, base=primary_head)
                 print(f"https://{self.gitprovider}/{self.organisation}/{repo}/pull/{pr.number}")           
                 logging.info(f"CREATED PR: https://{self.gitprovider}/{self.organisation}/{repo}/pull/{pr.number}")
             else:
